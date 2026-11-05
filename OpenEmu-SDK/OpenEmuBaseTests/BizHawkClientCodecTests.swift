@@ -141,6 +141,15 @@ final class BizHawkClientCodecTests: XCTestCase {
         XCTAssertEqual(replies[0]["type"] as? String, "ERROR")
     }
 
+    func testGameCubeAndWiiStayOutOfBizHawkClientsPortRange() {
+        for platform in ["GC", "Wii"] {
+            XCTAssertFalse(BizHawkClientCodec.ports(forPlatform: platform).overlaps(BizHawkClientCodec.ports))
+        }
+        for platform in ["GB", "GBC", "GBA", nil] {
+            XCTAssertEqual(BizHawkClientCodec.ports(forPlatform: platform), BizHawkClientCodec.ports)
+        }
+    }
+
     func testNoGameReportsNullSystem() throws {
         let memory = FakeLiveMemory(platform: nil, areas: [:])
         let replies = try send(#"[{"type":"SYSTEM"}]"#, to: memory)

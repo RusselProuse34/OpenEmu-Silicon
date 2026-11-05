@@ -31,7 +31,7 @@ With this version, `hook()` tries the Dolphin app first, then a GameCube or Wii 
 
 Tested so far on the Super Mario Sunshine disc, reading and writing memory through the library. No real seed has been played yet, and Wii is untested. Some games need more than this: New Super Mario Bros. Wii needs Riivolution patches, Twilight Princess needs a save file in Dolphin's card folder, and Paper Mario: The Thousand-Year Door bundles its own copy of the library.
 
-The Dolphin core shows its memory as `MEM1` and, on Wii, `MEM2`, using the same connection as the other cores, on the same ports. Reads and writes run straight away instead of between frames, as they do with the real library, so a list of steps is not atomic against the game on this core.
+The Dolphin core shows its memory as `MEM1` and, on Wii, `MEM2`, using the same messages as the other cores. It listens on ports 43065–43069, so BizHawk Client never connects to a GameCube or Wii game by mistake. Reads and writes run straight away instead of between frames, as they do with the real library, so a list of steps is not atomic against the game on this core.
 
 ## Setting it up
 

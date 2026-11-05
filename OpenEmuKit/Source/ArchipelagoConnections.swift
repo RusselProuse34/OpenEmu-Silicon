@@ -114,7 +114,9 @@ final class ArchipelagoConnections: @unchecked Sendable {
                     return
                 }
                 let codec = BizHawkClientCodec(romHash: romHash())
-                let listener = BizHawkClientListener(queue: queue, codec: codec, connections: self)
+                let listener = BizHawkClientListener(queue: queue, codec: codec,
+                                                     ports: BizHawkClientCodec.ports(forPlatform: platform),
+                                                     connections: self)
                 bizHawkListener = listener
                 listener.start()
                 os_log(.info, log: .archipelago, "Archipelago connections on for platform %{public}@", platform ?? "?")

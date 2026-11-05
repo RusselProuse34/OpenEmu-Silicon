@@ -2,7 +2,7 @@
 # archipelago-smoke.py — Check a running game's Archipelago connection the way BizHawk Client talks to it.
 #
 # Usage:
-#   python3 Scripts/archipelago-smoke.py            # first open port from 43055 to 43059
+#   python3 Scripts/archipelago-smoke.py            # first open port: 43055-43059, then 43065-43069
 #   python3 Scripts/archipelago-smoke.py --port 43056
 #
 # Before running: turn on Preferences → Debug → "Allow Archipelago connections", then start a game with a
@@ -19,7 +19,7 @@ import socket
 import sys
 import time
 
-PORTS = range(43055, 43060)
+PORTS = [*range(43055, 43060), *range(43065, 43070)]  # BizHawk Client games, then GameCube and Wii
 
 AREAS = {
     "GB": ["ROM", "WRAM", "CartRAM", "System Bus"],
@@ -129,12 +129,12 @@ def check_dolphin(conn, port, system):
 
 def main():
     parser = argparse.ArgumentParser(description="Check a running game's Archipelago connection.")
-    parser.add_argument("--port", type=int, help="port to use instead of scanning 43055-43059")
+    parser.add_argument("--port", type=int, help="port to use instead of scanning")
     args = parser.parse_args()
 
     port, conn = connect(args.port)
     if conn is None:
-        print("FAIL  no game is listening on 127.0.0.1:43055-43059 (is the preference on and a game running?)")
+        print("FAIL  no game is listening on 127.0.0.1:43055-43059 or 43065-43069 (is the preference on and a game running?)")
         return 1
     print(f"----  connected on port {port}")
 

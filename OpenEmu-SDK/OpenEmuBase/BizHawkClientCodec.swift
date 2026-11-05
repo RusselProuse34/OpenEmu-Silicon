@@ -37,6 +37,17 @@ public struct BizHawkClientCodec {
     /// The ports Archipelago's client tries, in order.
     public static let ports: ClosedRange<UInt16> = 43055...43059
 
+    /// The ports for GameCube and Wii games, which `dolphin_memory_engine` tries.
+    /// They speak these same messages but must stay out of BizHawk Client's range: it would connect,
+    /// find no handler for the game, and stay connected, blocking both the game's real client and any
+    /// BizHawk game it should have reached.
+    public static let dolphinMemoryEnginePorts: ClosedRange<UInt16> = 43065...43069
+
+    /// The ports a game on this platform listens on.
+    public static func ports(forPlatform platform: String?) -> ClosedRange<UInt16> {
+        platform == "GC" || platform == "Wii" ? dolphinMemoryEnginePorts : ports
+    }
+
     /// A line split into the steps to run, plus what each reply should look like.
     public struct Request {
         public let operations: [LiveMemoryOperation]

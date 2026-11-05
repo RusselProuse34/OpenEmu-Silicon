@@ -27,7 +27,8 @@ import Network
 import OpenEmuBase
 internal import os.log
 
-/// Accepts Archipelago's BizHawk Client on 127.0.0.1, ports 43055–43059.
+/// Accepts Archipelago's BizHawk Client on 127.0.0.1, ports 43055–43059, or `dolphin_memory_engine`
+/// on 43065–43069 for GameCube and Wii games. Both speak the same messages.
 ///
 /// Each game takes the first free port, so several games can be open at once. One client at a time:
 /// the port closes while a client is connected, and a game may get a different port when it reopens.
@@ -43,6 +44,7 @@ final class BizHawkClientListener: @unchecked Sendable {
 
     private let queue: DispatchQueue
     private let codec: BizHawkClientCodec
+    private let ports: ClosedRange<UInt16>
     private unowned let connections: ArchipelagoConnections
 
     private var listener: NWListener?
@@ -51,15 +53,16 @@ final class BizHawkClientListener: @unchecked Sendable {
     private var busy = false
     private var stopped = false
 
-    init(queue: DispatchQueue, codec: BizHawkClientCodec, connections: ArchipelagoConnections) {
+    init(queue: DispatchQueue, codec: BizHawkClientCodec, ports: ClosedRange<UInt16>, connections: ArchipelagoConnections) {
         self.queue = queue
         self.codec = codec
+        self.ports = ports
         self.connections = connections
     }
 
     func start() {
         dispatchPrecondition(condition: .onQueue(queue))
-        listen(on: BizHawkClientCodec.ports.lowerBound)
+        listen(on: ports.lowerBound)
     }
 
     func stop() {
@@ -80,7 +83,7 @@ final class BizHawkClientListener: @unchecked Sendable {
         connections.clientDisconnected()
         os_log(.info, log: .archipelago, "BizHawk Client disconnected")
         if !stopped && listener == nil {
-            listen(on: BizHawkClientCodec.ports.lowerBound)
+            listen(on: ports.lowerBound)
         }
     }
 
@@ -88,12 +91,12 @@ final class BizHawkClientListener: @unchecked Sendable {
 
     private func listen(on port: UInt16) {
         guard !stopped else { return }
-        guard BizHawkClientCodec.ports.contains(port), let nwPort = NWEndpoint.Port(rawValue: port) else {
+        guard ports.contains(port), let nwPort = NWEndpoint.Port(rawValue: port) else {
             os_log(.error, log: .archipelago, "No free port for BizHawk Client between %d and %d",
-                   BizHawkClientCodec.ports.lowerBound, BizHawkClientCodec.ports.upperBound)
+                   ports.lowerBound, ports.upperBound)
             queue.asyncAfter(deadline: .now() + Self.retryDelay) { [weak self] in
                 guard let self, self.listener == nil, self.client == nil else { return }
-                self.listen(on: BizHawkClientCodec.ports.lowerBound)
+                self.listen(on: self.ports.lowerBound)
             }
             return
         }
