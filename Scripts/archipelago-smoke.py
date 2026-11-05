@@ -6,7 +6,7 @@
 #   python3 Scripts/archipelago-smoke.py --port 43056
 #
 # Before running: turn on Preferences → Debug → "Allow Archipelago connections", then start a game with a
-# core that supports it (Gambatte for GB/GBC, mGBA for GBA). Close Archipelago's own BizHawk Client first,
+# core that supports it (Gambatte for GB/GBC, mGBA for GBA, Dolphin for GameCube and Wii). Close Archipelago's own BizHawk Client first,
 # because each game accepts one client at a time.
 #
 # Every change this script makes to game memory is undone inside the same request list, so the game never
@@ -17,6 +17,7 @@ import base64
 import json
 import socket
 import sys
+import time
 
 PORTS = range(43055, 43060)
 
@@ -24,6 +25,8 @@ AREAS = {
     "GB": ["ROM", "WRAM", "CartRAM", "System Bus"],
     "GBC": ["ROM", "WRAM", "CartRAM", "System Bus"],
     "GBA": ["ROM", "EWRAM", "IWRAM", "System Bus"],
+    "GC": ["MEM1"],
+    "Wii": ["MEM1", "MEM2"],
 }
 RAM_AREA = {"GB": "WRAM", "GBC": "WRAM", "GBA": "EWRAM"}
 TITLE = {"GB": (0x134, 16), "GBC": (0x134, 16), "GBA": (0xA0, 12)}
@@ -78,6 +81,52 @@ def connect(port):
     return None, None
 
 
+def check_dolphin(conn, port, system):
+    """GameCube and Wii: the areas dolphin_memory_engine clients use. Writes are not atomic on this core."""
+    for _ in range(120):
+        size = conn.send([{"type": "MEMORY_SIZE", "domain": "MEM1"}])[0].get("value", 0)
+        game_id = bytes(unb64(conn.send([{"type": "READ", "domain": "MEM1", "address": 0, "size": 6}])[0]["value"]))
+        if size and game_id.strip(b"\0"):
+            break
+        time.sleep(0.5)
+    check(size >= 0x1800000, "MEM1 is at least 24 MB", hex(size))
+    check(game_id.isalnum(), "the game ID is at the start of MEM1", game_id.decode("ascii", "replace"))
+
+    reply = conn.send([{"type": "READ", "domain": "MEM2", "address": 0, "size": 4}])[0]
+    if system == "Wii":
+        check(reply.get("type") == "READ_RESPONSE", "MEM2 can be read on Wii")
+    else:
+        check(reply.get("type") == "ERROR", "MEM2 does not exist on GameCube")
+
+    # The last byte of MEM1 is not used by games; flip it and put it back.
+    address = 0x1800000 - 1
+    original = unb64(conn.send([{"type": "READ", "domain": "MEM1", "address": address, "size": 1}])[0]["value"])[0]
+    replies = conn.send([
+        {"type": "WRITE", "domain": "MEM1", "address": address, "value": b64([original ^ 0xFF])},
+        {"type": "READ", "domain": "MEM1", "address": address, "size": 1},
+        {"type": "WRITE", "domain": "MEM1", "address": address, "value": b64([original])},
+    ])
+    check(unb64(replies[1]["value"]) == [original ^ 0xFF], "a MEM1 WRITE lands")
+
+    reply = conn.send([{"type": "READ", "domain": "MEM1", "address": size - 2, "size": 4}])[0]
+    check(reply.get("type") == "READ_RESPONSE" and unb64(reply["value"])[2:] == [0, 0],
+          "READ past the end of MEM1 pads with zeros instead of failing")
+
+    # Clients make hundreds of single reads a second, so these must not wait for a frame.
+    count, start = 2000, time.time()
+    for _ in range(count):
+        conn.send([{"type": "READ", "domain": "MEM1", "address": 0, "size": 1}])
+    rate = count / (time.time() - start)
+    check(rate > 1000, "small reads do not wait for a frame", f"{rate:.0f} reads a second")
+
+    try:
+        Connection(port).sock.close()
+        refused = False
+    except ConnectionRefusedError:
+        refused = True
+    check(refused, "a second client on the same game is refused outright")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check a running game's Archipelago connection.")
     parser.add_argument("--port", type=int, help="port to use instead of scanning 43055-43059")
@@ -106,6 +155,12 @@ def main():
     for area, reply in zip(AREAS[system], replies):
         sizes[area] = reply.get("value", -1)
         check(reply.get("type") == "MEMORY_SIZE_RESPONSE", f"MEMORY_SIZE {area}", hex(sizes[area]))
+    if system in ("GC", "Wii"):
+        check_dolphin(conn, port, system)
+        conn.sock.close()
+        print(f"----  {'all checks passed' if failures == 0 else f'{failures} check(s) failed'}")
+        return 0 if failures == 0 else 1
+
     check(sizes["ROM"] > 0, "ROM is not empty")
 
     title_address, title_length = TITLE[system]

@@ -13,7 +13,25 @@ OpenEmu can let those clients connect to a running game. It is off unless you tu
 
 Third-party games ("APWorlds") that use Archipelago's **BizHawk Client** on these systems work too, for example Pokémon Crystal.
 
-Not yet: other systems and cores, SNES games (they use a different Archipelago tool, SNI), GameCube games, and the older games that ship their own BizHawk-only scripts (Ocarina of Time, Zelda 1, Mega Man Battle Network 3, Adventure).
+Not yet: other systems and cores, SNES games (they use a different Archipelago tool, SNI), and the older games that ship their own BizHawk-only scripts (Ocarina of Time, Zelda 1, Mega Man Battle Network 3, Adventure).
+
+### GameCube and Wii
+
+GameCube and Wii clients use the Python library `dolphin_memory_engine`, not BizHawk Client.
+
+**Requirement: a version of that library with OpenEmu support.** The standard version from PyPI only finds the Dolphin app. With it, the client never connects and keeps saying it can't find Dolphin.
+
+To install it, run Archipelago from source and use the same Python environment. You also need `cmake` and Xcode's command line tools. A prebuilt copy of Archipelago keeps the library it was built with, so this does not reach it.
+
+```bash
+pip install "git+https://github.com/RusselProuse34/py-dolphin-memory-engine@feat/openemu-support"
+```
+
+With this version, `hook()` tries the Dolphin app first, then a GameCube or Wii game running in OpenEmu. Close any other client connected to that game first.
+
+Tested so far on the Super Mario Sunshine disc, reading and writing memory through the library. No real seed has been played yet, and Wii is untested. Some games need more than this: New Super Mario Bros. Wii needs Riivolution patches, Twilight Princess needs a save file in Dolphin's card folder, and Paper Mario: The Thousand-Year Door bundles its own copy of the library.
+
+The Dolphin core shows its memory as `MEM1` and, on Wii, `MEM2`, using the same connection as the other cores, on the same ports. Reads and writes run straight away instead of between frames, as they do with the real library, so a list of steps is not atomic against the game on this core.
 
 ## Setting it up
 
@@ -41,7 +59,7 @@ The listener only accepts connections from this Mac (127.0.0.1). Nothing reads O
 ## Adding a core
 
 1. Implement the live memory methods from `OEGameCore.h` in the core. Use the area names Archipelago clients expect for that system (for example `RAM`, `WRAM` and `PRG ROM` for NES). Reads past the end of an area return zeros; writes past the end are ignored.
-2. If the core runs the emulated CPU on its own thread (Mupen64Plus, Dolphin, Flycast, PPSSPP), also override `-performLiveMemoryTransaction:` so the block runs on that thread at a frame boundary. Otherwise the default is correct.
+2. If the core runs the emulated CPU on its own thread (Mupen64Plus, Flycast, PPSSPP), also override `-performLiveMemoryTransaction:` so the block runs on that thread at a frame boundary. Dolphin is the exception: it runs the block straight away, because its clients don't need frame timing. Otherwise the default is correct.
 3. Add the system's BizHawk id to `BizHawkClientCodec` if it differs from the platform name.
 4. Build and install with `./Scripts/core.sh <Core>`, start a game with the preference on, and run `python3 Scripts/archipelago-smoke.py`.
 

@@ -672,4 +672,94 @@ static void dolphin_hash_close(void *handle)
                                                 data:data];
     return @[mem1];
 }
+
+#pragma mark - Live Memory
+
+// Live memory areas for Archipelago clients. Bytes are big-endian, as the console stores them:
+//   MEM1  main RAM, offset 0 is 0x80000000 (GameCube and Wii)
+//   MEM2  the Wii's second RAM, offset 0 is 0x90000000 (Wii only)
+
+static NSString *const DolphinLiveMemoryMEM1 = @"MEM1";
+static NSString *const DolphinLiveMemoryMEM2 = @"MEM2";
+
+- (BOOL)dolphinIsWii
+{
+    return [self.systemIdentifier isEqualToString:@"openemu.system.wii"];
+}
+
+/// Finds the area's bus address and size, with size 0 while the game is not running.
+/// Returns NO if the area does not exist on this console.
+- (BOOL)dolphinLiveMemoryArea:(NSString *)area base:(u32 *)base size:(u32 *)size
+{
+    BOOL isMEM2 = [area isEqualToString:DolphinLiveMemoryMEM2];
+    if (![area isEqualToString:DolphinLiveMemoryMEM1] && !(isMEM2 && [self dolphinIsWii]))
+        return NO;
+
+    *base = isMEM2 ? 0x90000000u : 0x80000000u;
+    *size = 0;
+
+    auto &system = Core::System::GetInstance();
+    Core::State state = Core::GetState(system);
+    if (_isInitialized && (state == Core::State::Running || state == Core::State::Paused)) {
+        auto &memory = system.GetMemory();
+        *size = isMEM2 ? memory.GetExRamSizeReal() : memory.GetRamSizeReal();
+    }
+    return YES;
+}
+
+// The platform and area names come from the system, not the running game, because Dolphin
+// may still be starting when the helper first asks. Until it is running the areas are empty.
+- (NSString *)liveMemoryPlatform
+{
+    return [self dolphinIsWii] ? @"Wii" : @"GC";
+}
+
+- (NSArray<NSString *> *)liveMemoryAreaNames
+{
+    return [self dolphinIsWii] ? @[DolphinLiveMemoryMEM1, DolphinLiveMemoryMEM2] : @[DolphinLiveMemoryMEM1];
+}
+
+- (NSUInteger)sizeOfLiveMemoryArea:(NSString *)area
+{
+    u32 base = 0, size = 0;
+    return [self dolphinLiveMemoryArea:area base:&base size:&size] ? size : 0;
+}
+
+- (BOOL)readLiveMemoryArea:(NSString *)area offset:(uint64_t)offset length:(NSUInteger)length into:(uint8_t *)buffer
+{
+    u32 base = 0, size = 0;
+    if (![self dolphinLiveMemoryArea:area base:&base size:&size]) return NO;
+    memset(buffer, 0, length);
+
+    if (offset < size) {
+        size_t count = MIN(length, size - offset);
+        const u8 *source = Core::System::GetInstance().GetMemory().GetPointerForRange(base + (u32)offset, count);
+        if (source != nullptr)
+            memcpy(buffer, source, count);
+    }
+    return YES;
+}
+
+- (BOOL)writeLiveMemoryArea:(NSString *)area offset:(uint64_t)offset bytes:(const uint8_t *)bytes length:(NSUInteger)length
+{
+    u32 base = 0, size = 0;
+    if (![self dolphinLiveMemoryArea:area base:&base size:&size]) return NO;
+
+    if (offset < size) {
+        size_t count = MIN(length, size - offset);
+        u8 *destination = Core::System::GetInstance().GetMemory().GetPointerForRange(base + (u32)offset, count);
+        if (destination != nullptr)
+            memcpy(destination, bytes, count);
+    }
+    return YES;
+}
+
+// Dolphin's CPU runs on its own thread, so the core thread's gap between frames is not a safe point,
+// and stopping the CPU for each request would stutter: clients make hundreds of small reads a second.
+// Run straight away instead. This is what dolphin_memory_engine does from another process, and its
+// clients are written for it, but it means a list of steps here is NOT atomic against the game.
+- (void)performLiveMemoryTransaction:(void (^)(void))block
+{
+    block();
+}
 @end
